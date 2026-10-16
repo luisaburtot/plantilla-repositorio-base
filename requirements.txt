@@ -1,3 +1,2 @@
-# Registra aquí las dependencias de tu proyecto a medida que las instales.
-# Ejemplo (descomenta y ajusta según lo que uses):
-# requests
+python-dotenv
+google-genai==2.30.1
