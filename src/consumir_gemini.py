@@ -27,4 +27,4 @@ def obtener_dato_de_prueba(pregunta):
     return datos["candidates"][0]["content"]["parts"][0]["text"]
 
 
-print(obtener_dato_de_prueba("Hola, ¿cómo estás?"))
+print(obtener_dato_de_prueba("Confirma en una frase corta que esta conexión funciona"))
