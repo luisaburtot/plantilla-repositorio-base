@@ -99,7 +99,7 @@ Cuatro repeticiones de la misma pregunta por modelo, promediando al final.
 midieron en momentos distintos, y la columna de Flash-Lite se tomó durante un
 episodio documentado de saturación: entre las mediciones válidas, el servicio
 devolvió repetidamente HTTP 503 *"This model is currently experiencing high
-demand"*, que el script tuvo que reintentar con espera exponencial.
+demand"*, y hubo que repetir esas peticiones.
 
 La dispersión lo confirma: Flash-Lite varió 3,3 veces entre su medición más
 rápida y la más lenta, contra 1,4 veces de Flash. Esa inestabilidad es la firma
