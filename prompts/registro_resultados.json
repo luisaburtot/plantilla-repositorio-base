@@ -1,0 +1,78 @@
+{
+  "fecha": "2026-10-23T13:00:30-03:00",
+  "modelo": "gemini-3.1-flash-lite",
+  "repeticiones_por_prompt": 3,
+  "prompts": {
+    "clasificar_novedad": {
+      "validos": 3,
+      "invalidos": 0,
+      "no_medidos": 0,
+      "repeticiones": 3,
+      "tasa_consistencia": 1.0,
+      "usa_response_schema": true,
+      "claves_esperadas": [
+        "categoria",
+        "severidad",
+        "requiere_escalamiento",
+        "confianza"
+      ],
+      "fallos": [],
+      "ultima_salida_valida": {
+        "categoria": "acceso_no_autorizado",
+        "severidad": "media",
+        "requiere_escalamiento": true,
+        "confianza": 0.98
+      }
+    },
+    "extraer_datos_novedad": {
+      "validos": 3,
+      "invalidos": 0,
+      "no_medidos": 0,
+      "repeticiones": 3,
+      "tasa_consistencia": 1.0,
+      "usa_response_schema": true,
+      "claves_esperadas": [
+        "hora",
+        "ubicacion",
+        "personas",
+        "patentes"
+      ],
+      "fallos": [],
+      "ultima_salida_valida": {
+        "hora": "08:15",
+        "ubicacion": "bodega 3",
+        "personas": [
+          "Pedro Mellado",
+          "Luis Paredes"
+        ],
+        "patentes": [
+          "KXRT42"
+        ]
+      }
+    },
+    "resumir_para_parte": {
+      "validos": 3,
+      "invalidos": 0,
+      "no_medidos": 0,
+      "repeticiones": 3,
+      "tasa_consistencia": 1.0,
+      "usa_response_schema": true,
+      "claves_esperadas": [
+        "titulo",
+        "resumen",
+        "accion_sugerida"
+      ],
+      "fallos": [],
+      "ultima_salida_valida": {
+        "titulo": "Fuga de agua en bomba número dos",
+        "resumen": "Se detectó una fuga de agua en la unión de la bomba dos con acumulación de líquido en el piso, procediendo al corte del suministro y aviso a mantenimiento.",
+        "accion_sugerida": "Realizar la reparación técnica de la unión afectada."
+      }
+    }
+  },
+  "total_validos": 9,
+  "total_medidos": 9,
+  "total_sin_medir": 0,
+  "peticiones_gastadas": 9,
+  "tasa_global": 1.0
+}
