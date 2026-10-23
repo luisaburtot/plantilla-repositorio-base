@@ -32,9 +32,11 @@ desde el `.env` y lo inserta en la URL del endpoint. Las otras tres funciones
 modelo se use, así que esta decisión se revierte cambiando una línea del `.env`,
 sin modificar ningún archivo de código.
 
-La única dependencia indirecta son las constantes `PRECIO_ENTRADA` y
-`PRECIO_SALIDA` del módulo: tienen que coincidir con el modelo declarado, o el
-costo calculado deja de ser real.
+La única dependencia indirecta son los precios. Para que el costo calculado
+siempre corresponda al modelo declarado, el módulo los guarda en una tabla
+`PRECIOS_POR_MILLON` indexada por modelo: `precios_del_modelo()` toma los del
+`AI_MODEL` vigente, y si el modelo no está en la tabla falla con un mensaje claro
+antes de enviar la petición, en vez de reportar un costo equivocado sin avisar.
 
 ---
 

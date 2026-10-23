@@ -1,2 +1,15 @@
-python-dotenv
+# Dependencias del proyecto. Se instalan con:
+#   pip install -r requirements.txt
+
+# Cliente HTTP con el que se llama a la API REST de Gemini.
+# Mínimo 2.27: esa versión agregó requests.exceptions.JSONDecodeError, que
+# usa enviar_peticion(). Con una versión anterior el programa se cae.
+requests>=2.27,<3
+
+# Carga las variables del archivo .env (GEMINI_API_KEY y AI_MODEL).
+# Ojo: se instala como "python-dotenv" aunque en el código se importe "dotenv".
+python-dotenv>=1.0,<2
+
+# SDK oficial de Google para Gemini. El código actual no lo importa: usa la API
+# REST con requests. Se mantiene para las lecciones que usen el SDK.
 google-genai==2.30.1
