@@ -125,15 +125,18 @@ no de exactitud: Flash desarrolla más, Flash-Lite responde más corto.
 ### Límite operativo del nivel gratuito
 
 Dato que apareció durante las mediciones y conviene dejar registrado: el nivel
-gratuito permite **20 peticiones diarias por modelo**.
+gratuito tiene un **máximo de peticiones diarias por modelo**, que para Flash es
+de 20.
 
 ```
 Quota exceeded for metric: generate_content_free_tier_requests,
 limit: 20, model: gemini-3.8-flash
 ```
 
-El script de comparación gasta 7 peticiones por modelo, 14 por corrida completa,
-así que alcanza para una corrida al día. La proyección a 50.000 peticiones
+El máximo es distinto para cada modelo: el 23-10-2026 Flash-Lite aceptó más de
+20 peticiones en un día sin cortarse. El número vigente de cada uno se consulta
+en <https://aistudio.google.com/rate-limit>. El script de comparación gasta 3
+peticiones por modelo, 6 por corrida completa. La proyección a 50.000 peticiones
 mensuales de la tabla anterior es un ejercicio de costo: con el nivel gratuito
 ese volumen no es alcanzable, y llegar ahí exigiría pasar a un plan de pago.
 

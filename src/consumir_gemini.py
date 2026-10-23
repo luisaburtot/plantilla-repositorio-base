@@ -1,57 +1,45 @@
-"""Módulo común de la miniaplicación: todo lo que habla con la API de Gemini.
+"""Módulo que habla con la API de Gemini.
 
-Lo usan main.py, comparar_modelos.py y prompts/test_consistencia.py. Cualquier
-pieza que necesiten dos o más de ellos vive acá, una sola vez: los precios, el
-límite de cuota, los reintentos y el manejo de errores.
+Lo usan main.py, comparar_modelos.py y prompts/test_consistencia.py.
+Las funciones van en el orden en que se usan: armar la petición, enviarla,
+sacar el texto de la respuesta y calcular lo que costó.
 """
 
 import json
 import os
-import re
-import time
-
 import requests
 from dotenv import load_dotenv
 
 # Lee el archivo .env y deja sus variables disponibles para os.getenv()
 load_dotenv()
 
-# Precios por MILLÓN de tokens (entrada, salida), de la página oficial:
-# https://ai.google.dev/gemini-api/docs/pricing
-FECHA_PRECIOS = "22-10-2026"
-#
-# Van en una tabla por modelo, no en dos constantes sueltas, para que el costo
-# siempre corresponda al modelo declarado en AI_MODEL. Si cambias de modelo en
-# el .env y no está acá, el cálculo falla con un mensaje claro en vez de
-# reportar un costo equivocado sin avisar.
+# Precios por MILLON de tokens (entrada, salida), de la página oficial:
+# https://ai.google.dev/gemini-api/docs/pricing  (consultados el 22-10-2026)
 PRECIOS_POR_MILLON = {
     "gemini-3.1-flash-lite": (0.25, 1.50),
-    "gemini-3.8-flash": (0.75, 3.75),   # se duplica desde el 01-01-2027
+    "gemini-3.8-flash": (0.75, 3.75),
 }
+
+# Espera entre peticiones seguidas, para no pasarse del ritmo que permite la API.
+PAUSA_SEGUNDOS = 3
 
 
 def precios_del_modelo(modelo):
-    """Devuelve (precio_entrada, precio_salida) POR TOKEN para el modelo dado."""
+    """Devuelve (precio_entrada, precio_salida) POR TOKEN del modelo indicado."""
     if not modelo:
-        # Sin esto, a quien le falta AI_MODEL le aparecería "no hay precio para
-        # el modelo 'None'", que no le dice qué tiene que arreglar.
         raise RuntimeError("Falta declarar la variable AI_MODEL en el archivo .env")
     if modelo not in PRECIOS_POR_MILLON:
-        raise RuntimeError(
-            f"No hay precio registrado para el modelo '{modelo}'. "
-            "Agrégalo a PRECIOS_POR_MILLON con los valores de la página oficial."
-        )
+        raise RuntimeError(f"No hay precio registrado para el modelo '{modelo}'")
     entrada, salida = PRECIOS_POR_MILLON[modelo]
     return entrada / 1_000_000, salida / 1_000_000
 
 
-def armar_peticion(pregunta, system_instruction=None, response_schema=None):
+def armar_peticion(pregunta, system_instruction=None, pedir_json=False, modelo=None):
     """Devuelve (url, headers, body) listos para enviar a Gemini.
 
-    system_instruction: instrucción de comportamiento, en un canal separado de
-        la pregunta. Opcional.
-    response_schema: forma exacta que debe cumplir el JSON de respuesta.
-        Opcional. Si se entrega, la API genera bajo esa restricción.
+    system_instruction: instrucción de comportamiento, separada de la pregunta.
+    pedir_json: True para que la API responda solo con JSON, sin texto alrededor.
+    modelo: si no se indica, se usa el del archivo .env.
     """
     if not pregunta:
         raise ValueError("La pregunta no puede estar vacía")
@@ -60,28 +48,22 @@ def armar_peticion(pregunta, system_instruction=None, response_schema=None):
     if not api_key:
         raise RuntimeError("Falta declarar la variable GEMINI_API_KEY en el archivo .env")
 
-    modelo = os.getenv("AI_MODEL")
+    if modelo is None:
+        modelo = os.getenv("AI_MODEL")
     if not modelo:
         raise RuntimeError("Falta declarar la variable AI_MODEL en el archivo .env")
 
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent"
     headers = {"x-goog-api-key": api_key}
-
-    # Lo que cambia en cada llamada: la pregunta del usuario.
     body = {"contents": [{"parts": [{"text": pregunta}]}]}
 
-    # Lo que NO cambia: la instrucción de comportamiento. Canal aparte.
-    # OJO: la clave JSON es "systemInstruction" (camelCase), no "system_instruction".
-    # Escribirla con guion bajo da un error 400 "Unknown name".
+    # La instrucción de sistema va en su propio campo, no mezclada con la pregunta.
+    # OJO: la clave es "systemInstruction" (camelCase); con guion bajo da error 400.
     if system_instruction:
         body["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
-    # Restricción estructural de la salida, cuando se pide.
-    if response_schema is not None:
-        body["generationConfig"] = {
-            "responseMimeType": "application/json",
-            "responseSchema": response_schema,
-        }
+    if pedir_json:
+        body["generationConfig"] = {"responseMimeType": "application/json"}
 
     return url, headers, body
 
@@ -120,104 +102,6 @@ def enviar_peticion(url, headers, body):
     return datos
 
 
-# ---------------------------------------------------------------------------
-# Reintentos y cuota
-#
-# Antes cada script tenía su propia copia de todo esto. Ahora vive una sola vez
-# acá, y main.py, comparar_modelos.py y test_consistencia.py lo importan.
-# ---------------------------------------------------------------------------
-
-# El nivel gratuito permite 20 peticiones diarias POR MODELO, y cada reintento
-# cuenta como una petición más.
-LIMITE_DIARIO_GRATUITO = 20
-
-REINTENTOS = 3        # intentos por petición ante fallas transitorias
-PAUSA_SEGUNDOS = 3    # separación entre peticiones seguidas, para no gatillar el 429
-
-# Fallas que se arreglan solas esperando: servidor saturado o caído, límite de
-# ritmo y cortes de red. Las demás (400, 401, 403, 404) no se arreglan
-# esperando, así que no se reintentan.
-CODIGOS_TRANSITORIOS = ("429", "500", "502", "503", "504")
-MENSAJES_TRANSITORIOS = ("No se pudo conectar", "tardó demasiado", "Falló la petición")
-
-
-class CuotaAgotada(RuntimeError):
-    """La cuota diaria del nivel gratuito se acabó: no sirve seguir hoy."""
-
-
-class PresupuestoAgotado(RuntimeError):
-    """Se alcanzó el tope de peticiones que un script se permite gastar."""
-
-
-class Presupuesto:
-    """Lleva la cuenta de las peticiones que un script se permite gastar.
-
-    Cada script crea el suyo con el tope que necesita. Así ninguno depende de un
-    contador global que haya que acordarse de reiniciar.
-    """
-
-    def __init__(self, tope):
-        self.tope = tope
-        self.gastadas = 0
-
-    def gastar(self):
-        """Descuenta una petición, o falla si ya no quedan."""
-        if self.gastadas >= self.tope:
-            raise PresupuestoAgotado(
-                f"se alcanzó el tope de {self.tope} peticiones "
-                f"(límite diario del nivel gratuito: {LIMITE_DIARIO_GRATUITO})"
-            )
-        self.gastadas += 1
-
-
-def es_cuota_diaria(error):
-    """Distingue el 429 de cuota diaria agotada del 429 de ritmo.
-
-    El de ritmo se arregla esperando segundos; el de cuota diaria, solo horas.
-    """
-    texto = str(error).lower()
-    return "429" in texto and "quota" in texto
-
-
-def es_transitorio(error):
-    """Decide si vale la pena reintentar esta falla."""
-    texto = str(error)
-    if any(codigo in texto for codigo in CODIGOS_TRANSITORIOS):
-        return True
-    return any(marca in texto for marca in MENSAJES_TRANSITORIOS)
-
-
-def enviar_con_reintento(url, headers, body, intentos=REINTENTOS, presupuesto=None):
-    """Envía la petición, reintentando ante fallas transitorias.
-
-    Devuelve (datos, segundos): segundos es lo que tardó el intento que salió
-    bien, sin contar las esperas entre reintentos. Así sirve también para medir
-    latencia.
-
-    Si la cuota diaria se agotó lanza CuotaAgotada de inmediato, sin reintentar:
-    esperar segundos no la repone. Si se entrega un presupuesto, cada intento
-    descuenta de él.
-    """
-    espera = 2
-    for intento in range(1, intentos + 1):
-        if presupuesto is not None:
-            presupuesto.gastar()
-        inicio = time.perf_counter()
-        try:
-            datos = enviar_peticion(url, headers, body)
-        except RuntimeError as error:
-            if es_cuota_diaria(error):
-                raise CuotaAgotada(str(error)) from error
-            if not es_transitorio(error) or intento == intentos:
-                raise          # 400, 401, 404, o se acabaron los intentos
-            print(f"      falla transitoria ({error})")
-            print(f"      espero {espera}s y reintento ({intento}/{intentos - 1})...")
-            time.sleep(espera)
-            espera *= 2        # backoff exponencial: 2, 4, 8 segundos
-            continue
-        return datos, time.perf_counter() - inicio
-
-
 def extraer_texto(datos):
     """Saca el texto generado del diccionario de respuesta."""
     try:
@@ -228,35 +112,22 @@ def extraer_texto(datos):
         ) from error
 
 
-def parsear_respuesta_json(texto, claves_esperadas=None):
-    """Convierte el texto del modelo en un diccionario de Python.
-
-    Limpia el bloque de markdown si viene envuelto, valida que sea JSON, que sea
-    un objeto, y que traiga las claves que se esperaban.
-    """
-    texto_limpio = texto.strip()
-    # Quita ```json o ``` al principio, y ``` al final. Las expresiones regulares
-    # toleran que venga con la palabra "json" o sin ella, y espacios alrededor.
-    texto_limpio = re.sub(r"^```(?:json)?\s*", "", texto_limpio)
-    texto_limpio = re.sub(r"\s*```$", "", texto_limpio)
+def parsear_respuesta_json(texto, claves_esperadas):
+    """Convierte el texto del modelo en un diccionario y revisa que traiga las claves."""
+    # A veces el modelo envuelve el JSON en un bloque de markdown: se le quita.
+    texto_limpio = texto.replace("```json", "").replace("```", "").strip()
 
     try:
         datos = json.loads(texto_limpio)
     except json.JSONDecodeError as error:
         raise ValueError("La respuesta del modelo no es JSON válido.") from error
 
-    # json.loads("5") devuelve un int, y json.loads("[1,2]") una lista: los dos
-    # son JSON válido pero no sirven para buscar claves. Sin esta comprobación,
-    # el "in" de más abajo revienta con TypeError en vez de ValueError.
     if not isinstance(datos, dict):
-        raise ValueError(
-            f"La respuesta es JSON válido pero no es un objeto (llegó {type(datos).__name__})."
-        )
+        raise ValueError("La respuesta es JSON válido pero no es un objeto con claves.")
 
-    if claves_esperadas:
-        faltan = [clave for clave in claves_esperadas if clave not in datos]
-        if faltan:
-            raise ValueError(f"Faltan claves en la respuesta: {', '.join(faltan)}")
+    faltan = [clave for clave in claves_esperadas if clave not in datos]
+    if faltan:
+        raise ValueError(f"Faltan claves en la respuesta: {', '.join(faltan)}")
 
     return datos
 
@@ -275,25 +146,35 @@ def calcular_costo(datos, precio_entrada, precio_salida):
     return (tokens_entrada * precio_entrada) + (tokens_salida * precio_salida)
 
 
-def obtener_dato_de_prueba(pregunta):
+def obtener_dato_de_prueba(pregunta, system_instruction=None, pedir_json=False, modelo=None):
     """Llama a las funciones anteriores en orden y devuelve (texto, costo)."""
-    url, headers, body = armar_peticion(pregunta)
-    # Los precios se resuelven ANTES de enviar: si el modelo no tiene precio
-    # registrado, falla sin haber gastado una petición de la cuota.
-    precio_entrada, precio_salida = precios_del_modelo(os.getenv("AI_MODEL"))
+    if modelo is None:
+        modelo = os.getenv("AI_MODEL")
+    # Los precios se buscan ANTES de enviar: si el modelo no tiene precio
+    # registrado, falla sin haber gastado una petición.
+    precio_entrada, precio_salida = precios_del_modelo(modelo)
+    url, headers, body = armar_peticion(pregunta, system_instruction, pedir_json, modelo)
     datos = enviar_peticion(url, headers, body)
     texto = extraer_texto(datos)
     costo = calcular_costo(datos, precio_entrada, precio_salida)
     return texto, costo
 
 
+def obtener_respuesta_json(pregunta, system_instruction, claves_esperadas):
+    """Como obtener_dato_de_prueba, pero convierte la respuesta a diccionario.
+
+    Es lo que usa el banco de prompts. Devuelve (diccionario, costo).
+    """
+    texto, costo = obtener_dato_de_prueba(pregunta, system_instruction, pedir_json=True)
+    return parsear_respuesta_json(texto, claves_esperadas), costo
+
+
 # ---------------------------------------------------------------------------
 # Demostración del manejo de errores
 #
 # Está dentro de una función para que main.py pueda llamarla desde su menú.
-# Al final del archivo, el if __name__ == "__main__": la ejecuta solo cuando
-# corres este archivo directamente, y así importar el módulo no dispara
-# peticiones a la API.
+# El if __name__ == "__main__" del final la ejecuta solo cuando corres este
+# archivo directamente: importar el módulo no dispara peticiones a la API.
 # ---------------------------------------------------------------------------
 def demostracion():
     """Corre los cuatro casos de manejo de errores. Gasta 1 petición real."""
